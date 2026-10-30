@@ -12,11 +12,11 @@ services:
       - /var/run/dstack.sock:/var/run/dstack.sock
       - gateway-data:/data
     environment:
+      # The site's code finds its data folder under this name, so the box uses it too.
       RAILWAY_VOLUME_MOUNT_PATH: /data
       PARANOID_SITE_URL: https://paranoid.red
       PARANOID_CORS_ORIGINS: https://paranoid.red,https://www.paranoid.red
       NEXT_PUBLIC_PARANOID_PROGRAM: 9JJqzEoDGkTE8CMLATRw7CqFhcyWVegfhFuEeGfBfVGm
-      PARANOID_SEARCH_URL: https://searxng-production-64dd.up.railway.app
       PARANOID_ZEC: "1"
       PARANOID_RPC: ${PARANOID_RPC}
       PARANOID_MODEL_URL: ${PARANOID_MODEL_URL}
@@ -26,6 +26,7 @@ services:
       PARANOID_REPORTER_KEY: ${PARANOID_REPORTER_KEY}
       PARANOID_MCP_KEY: ${PARANOID_MCP_KEY}
       PARANOID_EXA_KEY: ${PARANOID_EXA_KEY}
+      PARANOID_SEARCH_URL: ${PARANOID_SEARCH_URL}
 
 volumes:
   gateway-data:
