@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - name: Build the image
+        run: ./build.sh paranoid-gateway:test
+      - name: Run it against the dstack stand-in
+        run: |
+          node test/dstack-stub.ts serve 41702 &
+          echo "SEED=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          sleep 1
+      - run: |
+          docker run -d --network host -e PORT=47300 -e DSTACK_SIMULATOR_ENDPOINT=http://127.0.0.1:41702 \
+            -e PARANOID_OHTTP_SEED="$SEED" paranoid-gateway:test
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:47300/health && break; sleep 1; done
+      - name: Check what the proof says
+        run: GATE=http://127.0.0.1:47300 ENV_SEED="$SEED" node test/gate-attest.ts
+
+  reproducible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Two clean builds give the same image
+        run: |
+          ./build.sh paranoid-gateway:first | tee first.txt
+          docker buildx prune --builder paranoid-gate -af
+          ./build.sh paranoid-gateway:second | tee second.txt
+          test "$(tail -1 first.txt)" = "$(tail -1 second.txt)"

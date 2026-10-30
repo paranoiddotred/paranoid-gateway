@@ -1,0 +1,39 @@
+name: release
+
+# A published release builds the image the same way ./build.sh does, pushes it to
+# ghcr.io/paranoiddotred/paranoid-gateway and writes the image id and the pushed digest into the release.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Build and push
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          IMAGE=ghcr.io/paranoiddotred/paranoid-gateway
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ./build.sh "$IMAGE:$TAG" | tee build.txt
+          docker push "$IMAGE:$TAG"
+          ID=$(docker image inspect --format '{{.Id}}' "$IMAGE:$TAG")
+          DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)
+          {
+            echo
+            echo "Image id (what \`./build.sh\` prints for this commit): \`$ID\`"
+            echo
+            echo "Pushed: \`$IMAGE@$DIGEST\`"
+          } > notes.md
+          gh release view "$TAG" --json body -q .body > body.md
+          cat body.md notes.md > release.md
+          gh release edit "$TAG" --notes-file release.md
