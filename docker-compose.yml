@@ -1,7 +1,8 @@
 # The PARANOID gateway on a Phala Cloud confidential VM (dstack, Intel TDX). The hash of this file is
 # measured into the chip's boot log, and the image is pinned by digest, so the browser can tell exactly
 # what runs. Values in ${...} are Phala encrypted environment variables: sealed to this app's key before
-# they leave the operator's machine and opened only inside the chip.
+# they leave the operator's machine and opened only inside the chip. Only keys sit there: every address a
+# question or a search can be sent to is written out below, so it is part of the measured file.
 services:
   gateway:
     image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:576e4b7f63539314213e0f26bf10901a185ec8ac997dc678f5450af994d01ce1
@@ -20,11 +21,41 @@ services:
       # Where search questions go is part of the measured file, so anyone can see it.
       PARANOID_SEARCH_URL: https://searxng-production-64dd.up.railway.app
       PARANOID_ZEC: "1"
+      PARANOID_MODEL_URL: https://llm.chutes.ai/v1
+      PARANOID_MODEL_NAME: deepseek-ai/DeepSeek-V4-Flash-0731-TEE
+      PARANOID_EXTRA_MODELS: |
+        [
+        {"url": "https://llm.chutes.ai/v1", "name": "unsloth/Mistral-Nemo-Instruct-2407-TEE", "label": "Fast"},
+        {"url": "https://llm.chutes.ai/v1", "name": "Qwen/Qwen3-32B-TEE", "label": "Thinking"},
+        {"url": "https://llm.chutes.ai/v1", "name": "google/gemma-4-31B-turbo-TEE", "label": "Gemma"},
+        {"url": "https://llm.chutes.ai/v1", "name": "Nemotron-3-Nano-Omni-30B-TEE", "label": "Nemotron"},
+        {"url": "https://llm.chutes.ai/v1", "name": "meta/Muse-Glimmer-30B-NVFP4-TEE", "label": "Muse"},
+        {"url": "https://llm.chutes.ai/v1", "name": "GLM-4.7-Flash-NVFP4-TEE", "label": "GLM"},
+        {"url": "https://llm.chutes.ai/v1", "name": "Qwen/Qwen3.8-27B-TEE-pareton", "label": "Qwen 3.8"},
+        {"url": "https://llm.chutes.ai/v1", "name": "deepseek-ai/DeepSeek-V3.2-TEE", "label": "DeepSeek V3.2", "cost": 2, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "moonshotai/Kimi-K2.6-TEE", "label": "Kimi K2.6", "cost": 2, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "zai-org/GLM-5.2-TEE", "label": "GLM 5.2", "cost": 5, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "moonshotai/Kimi-K3-TEE", "label": "Kimi K3", "cost": 12, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "moonshotai/Kimi-K2.7-Code", "label": "Kimi K2.7 Code", "cost": 4, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "Qwen/Qwen3.5-397B-A17B-TEE", "label": "Qwen 3.5", "cost": 2, "maxTokens": 4096, "body": {"chat_template_kwargs": {"enable_thinking": false}}},
+        {"url": "https://llm.chutes.ai/v1", "name": "Qwen/Qwen3.6-27B-TEE", "label": "Qwen 3.6", "cost": 2, "maxTokens": 4096, "body": {"chat_template_kwargs": {"enable_thinking": false}}},
+        {"url": "https://llm.chutes.ai/v1", "name": "zai-org/GLM-5.1-TEE", "label": "GLM 5.1", "cost": 3, "maxTokens": 4096, "body": {"chat_template_kwargs": {"enable_thinking": false}}},
+        {"url": "https://llm.chutes.ai/v1", "name": "vonkaiser/Biomni-R0-32B-Preview-FP8-Dynamic", "label": "Biomni"},
+        {"url": "https://llm.chutes.ai/v1", "name": "deepseek-ai/DeepSeek-V4-Pro-0813", "label": "DeepSeek V4 Pro", "cost": 5, "maxTokens": 4096},
+        {"url": "https://llm.chutes.ai/v1", "name": "Qwen/Qwen3.8-Max-0902", "label": "Qwen Max", "cost": 4, "maxTokens": 4096},
+        {"url": "https://tee.redpill.ai/v1", "name": "phala/gemma-4-26b-a4b-uncensored", "label": "Gemma Uncensored", "cost": 1, "maxTokens": 4096, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "nousresearch/hermes-3-llama-3.1-405b", "label": "Hermes 3 405B", "cost": 3, "maxTokens": 4096, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "anthropic/claude-opus-5", "label": "Claude Opus 5", "cost": 29, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "anthropic/claude-sonnet-5", "label": "Claude Sonnet 5", "cost": 18, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "openai/gpt-6-astra", "label": "GPT-6 Astra", "cost": 58, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "openai/gpt-6.1-sol", "label": "GPT-6.1 Sol", "cost": 12, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "openai/gpt-5.5", "label": "GPT-5.5", "cost": 33, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "openai/gpt-5-mini", "label": "GPT-5 mini", "cost": 2, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"},
+        {"url": "https://api.redpill.ai/v1", "name": "google/gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "cost": 22, "maxTokens": 4096, "maxInput": 24000, "keyEnv": "PARANOID_REDPILL_KEY"}
+        ]
       PARANOID_RPC: ${PARANOID_RPC}
-      PARANOID_MODEL_URL: ${PARANOID_MODEL_URL}
-      PARANOID_MODEL_NAME: ${PARANOID_MODEL_NAME}
       PARANOID_MODEL_KEY: ${PARANOID_MODEL_KEY}
-      PARANOID_EXTRA_MODELS: ${PARANOID_EXTRA_MODELS}
+      PARANOID_REDPILL_KEY: ${PARANOID_REDPILL_KEY}
       PARANOID_REPORTER_KEY: ${PARANOID_REPORTER_KEY}
       PARANOID_MCP_KEY: ${PARANOID_MCP_KEY}
       PARANOID_EXA_KEY: ${PARANOID_EXA_KEY}
