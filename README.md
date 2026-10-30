@@ -47,12 +47,13 @@ Only then does it seal a request to that key.
 
     ./build.sh
 
-builds `linux/amd64` with every timestamp clamped to `SOURCE_DATE_EPOCH`, so a given commit gives the same
-image id anywhere. Each release lists the image id and the digest pushed to
-`ghcr.io/paranoiddotred/paranoid-gateway`. To check a release:
+builds `linux/amd64` without cache and with every timestamp clamped to `SOURCE_DATE_EPOCH`, so a given commit
+gives the same image anywhere. It prints the image's config digest, which names the image the same way
+whichever Docker image store you use. Each release lists that id and the digest pushed to
+`ghcr.io/paranoiddotred/paranoid-gateway`. To check a release, read the config digest of the pushed image:
 
-    docker pull ghcr.io/paranoiddotred/paranoid-gateway@sha256:<digest from the release>
-    docker image inspect --format '{{.Id}}' ghcr.io/paranoiddotred/paranoid-gateway@sha256:<digest>
+    docker buildx imagetools inspect ghcr.io/paranoiddotred/paranoid-gateway@sha256:<digest from the release> \
+      --format '{{.Manifest.Config.Digest}}'
 
 and compare it with the id `./build.sh` printed for the release's commit. `docker-compose.yml` is the file
 the box runs; its SHA-256 is the compose hash in the boot log.

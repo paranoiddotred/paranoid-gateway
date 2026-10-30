@@ -26,7 +26,7 @@ jobs:
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           ./build.sh "$IMAGE:$TAG" | tee build.txt
           docker push "$IMAGE:$TAG"
-          ID=$(docker image inspect --format '{{.Id}}' "$IMAGE:$TAG")
+          ID=$(tail -1 build.txt | cut -d' ' -f2)
           DIGEST=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:$TAG" | cut -d@ -f2)
           {
             echo
