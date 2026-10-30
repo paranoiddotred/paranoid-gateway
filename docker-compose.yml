@@ -1,0 +1,31 @@
+# The PARANOID gateway on a Phala Cloud confidential VM (dstack, Intel TDX). The hash of this file is
+# measured into the chip's boot log, and the image is pinned by digest, so the browser can tell exactly
+# what runs. Values in ${...} are Phala encrypted environment variables: sealed to this app's key before
+# they leave the operator's machine and opened only inside the chip.
+services:
+  gateway:
+    image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+    restart: always
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/dstack.sock:/var/run/dstack.sock
+      - gateway-data:/data
+    environment:
+      RAILWAY_VOLUME_MOUNT_PATH: /data
+      PARANOID_SITE_URL: https://paranoid.red
+      PARANOID_CORS_ORIGINS: https://paranoid.red,https://www.paranoid.red
+      NEXT_PUBLIC_PARANOID_PROGRAM: 9JJqzEoDGkTE8CMLATRw7CqFhcyWVegfhFuEeGfBfVGm
+      PARANOID_SEARCH_URL: https://searxng-production-64dd.up.railway.app
+      PARANOID_ZEC: "1"
+      PARANOID_RPC: ${PARANOID_RPC}
+      PARANOID_MODEL_URL: ${PARANOID_MODEL_URL}
+      PARANOID_MODEL_NAME: ${PARANOID_MODEL_NAME}
+      PARANOID_MODEL_KEY: ${PARANOID_MODEL_KEY}
+      PARANOID_EXTRA_MODELS: ${PARANOID_EXTRA_MODELS}
+      PARANOID_REPORTER_KEY: ${PARANOID_REPORTER_KEY}
+      PARANOID_MCP_KEY: ${PARANOID_MCP_KEY}
+      PARANOID_EXA_KEY: ${PARANOID_EXA_KEY}
+
+volumes:
+  gateway-data:
