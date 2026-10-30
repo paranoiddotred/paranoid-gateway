@@ -52,8 +52,8 @@ gives the same image anywhere. It prints the image's config digest, which names 
 whichever Docker image store you use. Each release lists that id and the digest pushed to
 `ghcr.io/paranoiddotred/paranoid-gateway`. To check a release, read the config digest of the pushed image:
 
-    docker buildx imagetools inspect ghcr.io/paranoiddotred/paranoid-gateway@sha256:<digest from the release> \
-      --format '{{.Manifest.Config.Digest}}'
+    docker buildx imagetools inspect --raw ghcr.io/paranoiddotred/paranoid-gateway@sha256:<digest from the release> \
+      | tr -d ' \n' | grep -o '"config":{[^}]*}' | grep -o 'sha256:[0-9a-f]\{64\}'
 
 and compare it with the id `./build.sh` printed for the release's commit. `docker-compose.yml` is the file
 the box runs; its SHA-256 is the compose hash in the boot log.
