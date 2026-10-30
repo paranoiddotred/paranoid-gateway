@@ -4,7 +4,7 @@
 # they leave the operator's machine and opened only inside the chip.
 services:
   gateway:
-    image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:REPLACE_WITH_PUBLISHED_DIGEST
+    image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:576e4b7f63539314213e0f26bf10901a185ec8ac997dc678f5450af994d01ce1
     restart: always
     ports:
       - "8080:8080"
