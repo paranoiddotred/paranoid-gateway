@@ -20,13 +20,15 @@ export const MODEL: Model = {
   cost: 1,
   images: process.env.PARANOID_MODEL_IMAGES === "1",
 };
-/** More models, each on its own box, from PARANOID_EXTRA_MODELS: a JSON list of {url, name, label, key?, cost?, maxTokens?, body?, images?}.
- *  PARANOID_FAST_URL/NAME is the older spelling of one extra. Without its own key a model uses the model password. */
+/** More models, each on its own box, from PARANOID_EXTRA_MODELS: a JSON list of {url, name, label, key?, keyEnv?, cost?, maxTokens?, body?, images?}.
+ *  PARANOID_FAST_URL/NAME is the older spelling of one extra. Without its own key a model uses the model password.
+ *  `keyEnv` names the setting that holds the key instead, so the list (where questions go) can stay in plain view
+ *  while only the key is secret. */
 const FAST: Model | null = process.env.PARANOID_FAST_URL
   ? { url: process.env.PARANOID_FAST_URL, name: process.env.PARANOID_FAST_NAME ?? "qwen3-30b", key: MODEL.key, label: "Fast", cost: 1 }
   : null;
-const EXTRA: Model[] = (JSON.parse(process.env.PARANOID_EXTRA_MODELS ?? "[]") as (Omit<Model, "key" | "cost"> & { key?: string; cost?: number })[])
-  .map((m) => ({ ...m, key: m.key ?? MODEL.key, cost: Math.max(1, Math.floor(m.cost ?? 1)) }));
+const EXTRA: Model[] = (JSON.parse(process.env.PARANOID_EXTRA_MODELS ?? "[]") as (Omit<Model, "key" | "cost"> & { key?: string; keyEnv?: string; cost?: number })[])
+  .map(({ keyEnv, ...m }) => ({ ...m, key: m.key ?? (keyEnv ? process.env[keyEnv] ?? "" : MODEL.key), cost: Math.max(1, Math.floor(m.cost ?? 1)) }));
 export const MODELS: Model[] = [MODEL, ...(FAST ? [FAST] : []), ...EXTRA]
   .filter((m, i, all) => all.findIndex((o) => o.name === m.name) === i);
 /** The model a request names, or the default for any other name ("gpt-4o", "any"), so every app keeps working. */
