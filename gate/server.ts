@@ -38,6 +38,7 @@ const ROUTES: [RegExp, string][] = [
   [/^\/api\/search$/, "app/api/search/route.ts"],
   [/^\/api\/mcp\/url$/, "app/api/mcp/url/route.ts"],
   [/^\/mcp\/(?<token>[^/]+)$/, "app/mcp/[token]/route.ts"],
+  [/^\/mcp\/(?<token>[^/]+)\/chat$/, "app/mcp/[token]/chat/route.ts"],
   [/^\/api\/x402\/join$/, "app/api/x402/join/route.ts"],
   [/^\/api\/zec$/, "app/api/zec/route.ts"],
   [/^\/api\/zec\/status$/, "app/api/zec/status/route.ts"],

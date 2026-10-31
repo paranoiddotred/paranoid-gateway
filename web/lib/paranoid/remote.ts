@@ -148,22 +148,24 @@ async function keyFor(secret: bigint, t: Today, tickets: number[], x: bigint): P
 
 // ---- the tools
 
-export async function ask(secret: bigint, question: string, model?: string, system?: string): Promise<{ text: string; error?: true }> {
+/** Picks and reserves the model's price in tickets, proves them here and sends `payload` (an OpenAI chat body
+ *  without the model) to the gateway. Returns the gateway's own response, or a plain-words reason when no request
+ *  went out. Tickets are reserved only until the gateway answers: by then it has written them into its book. */
+async function spend(secret: bigint, model: string | undefined, payload: Record<string, unknown>): Promise<Response | string> {
   const chosen = pickModel(model);
   const t = await today(secret);
-  if (typeof t === "string") return { text: t, error: true };
+  if (typeof t === "string") return t;
   const tags = (await tagsOf(secret, t.m.questions)).slice(0, t.m.questions);
   // Picking and reserving happen in one go, with no await in between, so no other call can take the same tickets.
   const tickets = topFree(tags, chosen.cost);
   if (tickets.length < chosen.cost) {
-    return { text: `This URL has fewer than ${chosen.cost} question${chosen.cost === 1 ? "" : "s"} left to spend on ${chosen.label}. Top up at paranoid.red/app, or pick a model that costs less.`, error: true };
+    return `This URL has fewer than ${chosen.cost} question${chosen.cost === 1 ? "" : "s"} left to spend on ${chosen.label}. Top up at paranoid.red/app, or pick a model that costs less.`;
   }
   const held = tickets.map((i) => tags[i]);
   for (const n of held) reserved.add(n);
   try {
     const x = randomField();
-    const messages = [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: question }];
-    const body = JSON.stringify({ model: chosen.name, messages });
+    const body = JSON.stringify({ ...payload, model: chosen.name });
     let current = t;
     let res!: Response;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -176,16 +178,31 @@ export async function ask(secret: bigint, question: string, model?: string, syst
       if (code !== "stale_member_list") break;
       // The member list moved after the read (a purchase or a slash). Same tickets, same x, new list.
       const again = await today(secret);
-      if (typeof again === "string") return { text: again, error: true };
+      if (typeof again === "string") return again;
       current = again;
     }
-    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
-    if (!res.ok) return { text: j.error?.message ?? `The gateway answered ${res.status}. No question was spent.`, error: true };
-    return { text: j.choices?.[0]?.message?.content ?? "" };
+    return res;
   } finally {
     // Answered: the gateway has written them into its book. Not answered: it gave them back.
     for (const n of held) reserved.delete(n);
   }
+}
+
+export async function ask(secret: bigint, question: string, model?: string, system?: string): Promise<{ text: string; error?: true }> {
+  const messages = [...(system ? [{ role: "system", content: system }] : []), { role: "user", content: question }];
+  const res = await spend(secret, model, { messages });
+  if (typeof res === "string") return { text: res, error: true };
+  const j = (await res.json().catch(() => ({}))) as { error?: { message?: string }; choices?: { message?: { content?: string } }[] };
+  if (!res.ok) return { text: j.error?.message ?? `The gateway answered ${res.status}. No question was spent.`, error: true };
+  return { text: j.choices?.[0]?.message?.content ?? "" };
+}
+
+/** A whole conversation, answered as server-sent events straight from the model (OpenAI chunk format).
+ *  A refusal before any answer comes back as JSON `{ error: { message } }` with the gateway's status. */
+export async function streamChat(secret: bigint, messages: { role: string; content: string }[], model?: string): Promise<Response> {
+  const res = await spend(secret, model, { messages, stream: true });
+  if (typeof res === "string") return Response.json({ error: { message: res } }, { status: 402 });
+  return res;
 }
 
 export async function balance(secret: bigint): Promise<{ text: string; error?: true }> {
