@@ -5,7 +5,7 @@
 # question or a search can be sent to is written out below, so it is part of the measured file.
 services:
   gateway:
-    image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:e3c76b29210375d3af342b5a3477cdd563d445733a8d48ab35be3c73c4f86ffd
+    image: ghcr.io/paranoiddotred/paranoid-gateway@sha256:81c8b39ddeeefed6ef9c2ef7d48c3675d6935d3236933f77baf42cf4bcaefd1d
     restart: always
     ports:
       - "8080:8080"
