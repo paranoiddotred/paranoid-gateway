@@ -14,6 +14,10 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && rm -rf /root/.npm
 COPY web ./web
 COPY gate ./gate
 
+# The data folder belongs to the user the server runs as, so a fresh volume mounted there (spent tickets,
+# x402 and Zcash books) starts writable.
+RUN mkdir /data && chown node:node /data
+
 USER node
 EXPOSE 8080
 CMD ["node", "gate/main.mjs"]
