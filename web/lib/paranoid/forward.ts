@@ -56,8 +56,9 @@ export async function forwardChat(upstream: string, apiKey: string, body: Record
     body: JSON.stringify(body),
   });
   // Pass the body through untouched (works for both JSON and server-sent events), but only our own headers.
+  // no-transform keeps proxies (and Next's own gzip in front of the site) from holding a stream back to compress it.
   return new Response(res.body, {
     status: res.status,
-    headers: { "content-type": res.headers.get("content-type") ?? "application/json", "cache-control": "no-store" },
+    headers: { "content-type": res.headers.get("content-type") ?? "application/json", "cache-control": "no-store, no-transform" },
   });
 }
