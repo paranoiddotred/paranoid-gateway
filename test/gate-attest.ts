@@ -49,11 +49,12 @@ for (const e of JSON.parse(a.event_log) as { imr: number; event_type: number; ev
   if (String(e.imr) !== "3") continue;
   const type = Buffer.alloc(4); type.writeUInt32LE(e.event_type);
   const d = sha("sha384", type, Buffer.from(":"), Buffer.from(e.event), Buffer.from(":"), Buffer.from(e.event_payload, "hex"));
-  logOk &&= d.toString("hex") === e.digest;
+  // The real dstack leaves `digest` empty on these events; the replay into RTMR3 is what binds them.
+  logOk &&= !e.digest || d.toString("hex") === e.digest;
   rtmr3 = sha("sha384", rtmr3, d);
   if (e.event === "compose-hash") compose = e.event_payload;
 }
-ok("every boot log event matches its digest", logOk);
+ok("every boot log event that carries a digest matches it", logOk);
 ok("the boot log replays to the quote's RTMR3", rtmr3.toString("hex") === q.subarray(body + 472, body + 520).toString("hex"));
 ok("the compose file is the one in the boot log", sha("sha256", Buffer.from(a.app_compose)).toString("hex") === compose);
 
