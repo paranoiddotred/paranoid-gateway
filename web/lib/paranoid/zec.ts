@@ -1,6 +1,6 @@
-// Buying questions with Zcash. The buyer sends ZEC, ideally from a shielded address, to a one-time address
-// from NEAR Intents 1Click (https://docs.near-intents.org), which swaps it into USDC on Solana and pays it to
-// the gateway's wallet. The gateway then buys the questions for the buyer's commitment, as it does for x402,
+// Buying questions with Zcash or SOL. The buyer sends ZEC (ideally from a shielded address) or SOL to a one-time
+// address from NEAR Intents 1Click (https://docs.near-intents.org), which swaps it into USDC on Solana and pays it
+// to the gateway's wallet. The gateway then buys the questions for the buyer's commitment, as it does for x402,
 // so on Solana the membership's depositor is the gateway and on Zcash a shielded sender shows no one.
 //
 // An order is the 1Click deposit address plus the commitment and number of questions it pays for, sealed
@@ -13,15 +13,18 @@ import { ata, USDC_MINT } from "./chain.ts";
 
 export const ONECLICK = process.env.PARANOID_ONECLICK_URL ?? "https://1click.chaindefuser.com/v0";
 export const ZEC_ASSET = "nep141:zec.omft.near";
+export const SOL_ASSET = "nep141:sol.omft.near";
 export const USDC_SOL_ASSET = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near";
 
-export type Order = { deposit: string; commitment: bigint; questions: number; usdc: bigint };
+export type Coin = "zec" | "sol";
+export const ASSET: Record<Coin, string> = { zec: ZEC_ASSET, sol: SOL_ASSET };
+export type Order = { deposit: string; commitment: bigint; questions: number; usdc: bigint; coin: Coin };
 
 const b64u = (b: Buffer) => b.toString("base64url");
 const mac = (key: Keypair, body: string) => createHmac("sha256", key.secretKey).update("paranoid-zec:" + body).digest();
 
 export function sealOrder(key: Keypair, o: Order): string {
-  const body = b64u(Buffer.from(JSON.stringify({ d: o.deposit, c: o.commitment.toString(16), q: o.questions, u: o.usdc.toString() })));
+  const body = b64u(Buffer.from(JSON.stringify({ d: o.deposit, c: o.commitment.toString(16), q: o.questions, u: o.usdc.toString(), a: o.coin })));
   return `${body}.${b64u(mac(key, body))}`;
 }
 
@@ -32,28 +35,31 @@ export function openOrder(key: Keypair, token: string): Order | null {
   if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
   try {
     const j = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
-    return { deposit: String(j.d), commitment: BigInt("0x" + j.c), questions: Number(j.q), usdc: BigInt(j.u) };
+    return { deposit: String(j.d), commitment: BigInt("0x" + j.c), questions: Number(j.q), usdc: BigInt(j.u), coin: j.a === "sol" ? "sol" : "zec" };
   } catch { return null; }
 }
 
-let price: { usd: number; at: number } | null = null;
-/** ZEC in US dollars from 1Click's token list, at most a minute old, for showing about how much ZEC a pack takes. */
-export async function zecUsd(): Promise<number | null> {
-  if (price && Date.now() - price.at < 60_000) return price.usd;
+const prices: Partial<Record<Coin, { usd: number; at: number }>> = {};
+/** A coin in US dollars from 1Click's token list, at most a minute old, for showing about how much a pack takes. */
+export async function coinUsd(coin: Coin): Promise<number | null> {
+  const had = prices[coin];
+  if (had && Date.now() - had.at < 60_000) return had.usd;
   try {
     const list = (await (await fetch(`${ONECLICK}/tokens`, { cache: "no-store" })).json()) as { assetId: string; price?: number }[];
-    const usd = Number(list.find((t) => t.assetId === ZEC_ASSET)?.price);
-    if (usd > 0) price = { usd, at: Date.now() };
+    for (const c of Object.keys(ASSET) as Coin[]) {
+      const usd = Number(list.find((t) => t.assetId === ASSET[c])?.price);
+      if (usd > 0) prices[c] = { usd, at: Date.now() };
+    }
   } catch { /* keep the last price */ }
-  return price?.usd ?? null;
+  return prices[coin]?.usd ?? null;
 }
 
 type Quote = { depositAddress: string; amountIn: string; amountInFormatted: string; deadline: string; timeEstimate: number };
 
-/** Asks 1Click for a ZEC deposit address that pays exactly `usdc` (base units) to `recipient` on Solana. Without
- *  a refund address, a failed swap refunds to the gateway's own NEAR Intents account: the NEAR implicit account of
- *  the same ed25519 key, so the gateway can send it back by hand. */
-export async function quoteZec(recipient: PublicKey, usdc: bigint, refundTo: string): Promise<{ ok: true; quote: Quote } | { ok: false; message: string }> {
+/** Asks 1Click for a deposit address in `coin` that pays exactly `usdc` (base units) to `recipient` on Solana.
+ *  Without a refund address, a failed swap refunds to the gateway's own NEAR Intents account: the NEAR implicit
+ *  account of the same ed25519 key, so the gateway can send it back by hand. */
+export async function quoteZec(recipient: PublicKey, usdc: bigint, refundTo: string, coin: Coin = "zec"): Promise<{ ok: true; quote: Quote } | { ok: false; message: string }> {
   const refund = refundTo
     ? { refundTo, refundType: "ORIGIN_CHAIN" }
     : { refundTo: Buffer.from(recipient.toBytes()).toString("hex"), refundType: "INTENTS" };
@@ -62,7 +68,7 @@ export async function quoteZec(recipient: PublicKey, usdc: bigint, refundTo: str
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       dry: false, swapType: "EXACT_OUTPUT", slippageTolerance: 100,
-      originAsset: ZEC_ASSET, depositType: "ORIGIN_CHAIN", amount: usdc.toString(),
+      originAsset: ASSET[coin], depositType: "ORIGIN_CHAIN", amount: usdc.toString(),
       destinationAsset: USDC_SOL_ASSET, recipient: recipient.toBase58(), recipientType: "DESTINATION_CHAIN",
       ...refund,
       deadline: new Date(Date.now() + 3_600_000).toISOString(),
@@ -85,7 +91,7 @@ export async function swapOf(o: Order, recipient: PublicKey): Promise<Swap> {
   if (!res.ok) return { state: "waiting" };
   const j = await res.json();
   const req = j.quoteResponse?.quoteRequest ?? {};
-  if (req.recipient !== recipient.toBase58() || req.destinationAsset !== USDC_SOL_ASSET || req.originAsset !== ZEC_ASSET)
+  if (req.recipient !== recipient.toBase58() || req.destinationAsset !== USDC_SOL_ASSET || req.originAsset !== ASSET[o.coin])
     return { state: "failed", reason: "This deposit address belongs to a different swap." };
   switch (j.status) {
     case "PENDING_DEPOSIT": return { state: "waiting" };
@@ -95,9 +101,10 @@ export async function swapOf(o: Order, recipient: PublicKey): Promise<Swap> {
       return tx ? { state: "paid", usdc: BigInt(j.swapDetails.amountOut ?? 0), tx } : { state: "swapping" };
     }
     case "REFUNDED": return { state: "failed", reason: req.refundType === "INTENTS"
-      ? "The swap could not be done, so the ZEC came back to PARANOID. Write to us on X with this address and we send it back."
+      ? `The swap could not be done, so the ${o.coin.toUpperCase()} came back to PARANOID. Write to us on X with this address and we send it back.`
+      : o.coin === "sol" ? "The swap could not be done, so the SOL was sent back to your wallet."
       : "The swap could not be done, so the ZEC was sent back to your refund address." };
-    case "INCOMPLETE_DEPOSIT": return { state: "failed", reason: "Less ZEC arrived than the order needs. Send the rest to the same address, or wait for the refund." };
+    case "INCOMPLETE_DEPOSIT": return { state: "failed", reason: `Less ${o.coin.toUpperCase()} arrived than the order needs. Send the rest to the same address, or wait for the refund.` };
     default: return { state: "failed", reason: `The swap stopped (${j.status}).` };
   }
 }

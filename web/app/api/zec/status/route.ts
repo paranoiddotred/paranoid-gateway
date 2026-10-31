@@ -1,4 +1,4 @@
-// GET /api/zec/status?order=<order>: where a Zcash purchase stands. Once the swap has paid the gateway in USDC,
+// GET /api/zec/status?order=<order>: where a Zcash or SOL purchase stands. Once the swap has paid the gateway in USDC,
 // the first call that sees it buys the questions (or tops up a membership the gateway bought before), and every
 // later call gets the same answer. Calling it is safe at any time and from anywhere.
 import { Connection, Transaction } from "@solana/web3.js";
@@ -14,7 +14,7 @@ const refuse = (status: number, message: string) => Response.json({ error: messa
 
 export async function GET(req: Request) {
   const reporter = GATEWAY.reporter;
-  if (!reporter) return refuse(503, "Buying with Zcash is not open on this gateway.");
+  if (!reporter) return refuse(503, "Buying with Zcash or SOL is not open on this gateway.");
   const o = openOrder(reporter, new URL(req.url).searchParams.get("order") ?? "");
   if (!o) return refuse(400, "This is not an order from this gateway.");
   const id = `zec:${o.deposit}`;
