@@ -109,6 +109,65 @@ export function decodeResponse(wire: Uint8Array): InnerResponse {
 
 // ---- RFC 9458 encapsulation.
 
+// ---- Shape hiding. Sealing hides what a message says, not how long it is or when its pieces leave, and
+// a streamed answer sealed token by token shows every token's length to the relay and to anyone on the
+// wire (Weiss et al., USENIX Security 2024; Microsoft's Whisper Leak, 2025). A caller that sends the
+// SHAPE header gets everything in fixed shapes instead: requests and whole answers are filled up to a
+// few size buckets, and a streamed answer leaves as equal frames on a fixed beat, with empty frames
+// when the model is quiet and a tail that rounds its length up. A gateway that does not know the header
+// ignores it and answers as before, so either side can be updated first.
+
+export const SHAPE = "x-paranoid-shape";
+const PAD = "x-pad"; // the filler header; a second, shorter one covers the sizes one header cannot hit
+const PAD2 = "x-p";
+const FRAME = 1024; // plaintext bytes of every streamed piece: flags, length, data, zeros
+const TICK_MS = 100; // one frame leaves every tick
+const TAIL = 50; // a stream's frame count is rounded up to a multiple of this (5 s)
+const BULK = 16 * FRAME; // a backlog above this is a large download, not typing: it goes out back to back
+const END = 1; // frame flag: no data follows this frame
+
+const vl = (v: number) => (v < 64 ? 1 : v < 16384 ? 2 : 4);
+const linesLength = (headers: [string, string][]) =>
+  headers.reduce((n, [k, v]) => { const a = te.encode(k.toLowerCase()).length, b = te.encode(v).length; return n + vl(a) + a + vl(b) + b; }, 0);
+/** Sizes a message may take: powers of two from `min`, then steps of 64 KB (the envelope tops out near 1 MB). */
+function bucket(n: number, min: number): number {
+  let b = min;
+  while (b < n && b < 1 << 19) b *= 2;
+  return b >= n ? b : Math.ceil(n / 65536) * 65536;
+}
+/** Filler headers that bring an encoded message of `size` bytes, whose header lines take `lines` bytes, to
+ *  exactly `target` bytes. Lengths are counted, not built, so a megabyte message costs nothing to fit. */
+function filler(size: number, lines: number, target: number): [string, string][] {
+  const rest = size - vl(lines) - lines;
+  const total = (n: number, m: number) => {
+    const L = lines + 1 + PAD.length + vl(n) + n + (m < 0 ? 0 : 1 + PAD2.length + vl(m) + m);
+    return rest + vl(L) + L;
+  };
+  for (let m = -1; m < 16; m++) {
+    for (let n = Math.max(0, target - size - 32); n <= target - size; n++) {
+      if (total(n, m) === target) return m < 0 ? [[PAD, "0".repeat(n)]] : [[PAD, "0".repeat(n)], [PAD2, "0".repeat(m)]];
+    }
+  }
+  return [];
+}
+const shaped = (headers: [string, string][]) => headers.some(([n, v]) => n === SHAPE && v === "1");
+const unpadded = (headers: [string, string][]) => headers.filter(([n]) => n !== PAD && n !== PAD2 && n !== SHAPE);
+/** The request with the SHAPE header and filler up to its bucket (left as it is when it is too large to fill). */
+function shapeRequest(q: InnerRequest): InnerRequest {
+  const headers: [string, string][] = [...q.headers, [SHAPE, "1"]];
+  const size = encodeRequest({ ...q, headers }).length;
+  const target = bucket(size + 8, 4096);
+  return { ...q, headers: target > 983040 ? headers : [...headers, ...filler(size, linesLength(headers), target)] };
+}
+/** The response filled up to `target` bytes when given, else to its bucket. */
+function shapeResponse(p: InnerResponse, target?: number): InnerResponse {
+  const headers: [string, string][] = [...p.headers, [SHAPE, "1"]];
+  const size = encodeResponse({ ...p, headers }).length;
+  const to = target !== undefined && target >= size + 8 ? target : bucket(size + 8, 1024);
+  return { ...p, headers: [...headers, ...filler(size, linesLength(headers), to)] };
+}
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
 // ---- Chunked responses (draft-ietf-ohai-chunked-ohttp): a streamed answer is sealed piece by piece
 // as it is written, so it reaches the browser through the relay while it is still coming. The head
 // (status and headers) is the first sealed piece, then each piece of the body; the last piece is
@@ -182,8 +241,10 @@ async function responseAead(enc: Uint8Array, exported: Uint8Array, responseNonce
 }
 
 /** Browser side: seal one request; the returned `open` unseals the matching response. A chunked request
- *  (message/ohttp-chunked-req) travels as one final piece and asks for a chunked answer. */
-export async function sealRequest(configBytes: Uint8Array, q: InnerRequest, chunked = false) {
+ *  (message/ohttp-chunked-req) travels as one final piece and asks for a chunked answer. With `shape` the
+ *  request is filled to a size bucket and asks for an answer in fixed shapes (see "Shape hiding"). */
+export async function sealRequest(configBytes: Uint8Array, q: InnerRequest, chunked = false, shape = false) {
+  if (shape) q = shapeRequest(q);
   const { publicKey } = parseKeyConfig(configBytes);
   const pk = await suite.kem.deserializePublicKey(publicKey as BufferSource);
   const sender = await suite.createSenderContext({ recipientPublicKey: pk, info: requestInfo(chunked) as BufferSource });
@@ -198,7 +259,8 @@ export async function sealRequest(configBytes: Uint8Array, q: InnerRequest, chun
       const ct = responseWire.subarray(Math.max(NK, NN));
       const { key, nonce } = await responseAead(enc, exported, new Uint8Array(responseNonce));
       const pt = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: nonce as BufferSource }, key, ct as BufferSource));
-      return decodeResponse(pt);
+      const p = decodeResponse(pt);
+      return { ...p, headers: unpadded(p.headers) };
     },
     /** Opens a chunked response as it arrives: the head first, then a body stream of opened pieces. */
     async openChunked(stream: ReadableStream<Uint8Array>): Promise<{ status: number; headers: [string, string][]; body: ReadableStream<Uint8Array> }> {
@@ -217,6 +279,28 @@ export async function sealRequest(configBytes: Uint8Array, q: InnerRequest, chun
       const first = await next();
       if (first.final) throw new Error("The sealed answer was cut short.");
       const head = decodeResponse(first.data);
+      if (shaped(head.headers)) {
+        // Fixed frames: hand on the data in each, finish at the END flag, then read the tail out quietly
+        // so the connection closes when the gateway ends it and not when the answer did.
+        const body = new ReadableStream<Uint8Array>({
+          async pull(c) {
+            for (;;) {
+              const { data, final } = await next();
+              if (final) throw new Error("The sealed answer was cut short.");
+              const len = (data[1] << 8) | data[2];
+              if (len) c.enqueue(data.subarray(3, 3 + len));
+              if (data[0] & END) {
+                c.close();
+                (async () => { try { while (!(await next()).final) { /* tail */ } } catch { /* the answer is already whole */ } })();
+                return;
+              }
+              if (len) return;
+            }
+          },
+          cancel: (reason) => src.cancel(reason),
+        });
+        return { status: head.status, headers: unpadded(head.headers), body };
+      }
       const body = new ReadableStream<Uint8Array>({
         async pull(c) {
           for (;;) {
@@ -261,11 +345,16 @@ export async function openRequest(keyPair: CryptoKeyPair, wire: Uint8Array, chun
     }
     plain = cat(...parts);
   }
-  const inner = decodeRequest(plain);
+  const decoded = decodeRequest(plain);
+  const shape = shaped(decoded.headers);
+  const inner = { ...decoded, headers: unpadded(decoded.headers) };
   const exported = new Uint8Array(await recipient.export(te.encode("message/bhttp response") as BufferSource, NK));
   return {
     inner,
+    /** True when the caller asked for answers in fixed shapes. */
+    shape,
     async seal(p: InnerResponse): Promise<Uint8Array> {
+      if (shape) p = shapeResponse(p);
       const responseNonce = crypto.getRandomValues(new Uint8Array(Math.max(NK, NN)));
       const { key, nonce } = await responseAead(enc, exported, responseNonce);
       const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce as BufferSource }, key, encodeResponse(p) as BufferSource));
@@ -282,8 +371,47 @@ export async function openRequest(keyPair: CryptoKeyPair, wire: Uint8Array, chun
         const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource, additionalData: (final ? FINAL : NOT_FINAL) as BufferSource }, key, pt as BufferSource));
         return final ? cat(varint(0), ct) : cat(varint(ct.length), ct);
       };
-      const head = await piece(encodeResponse({ status, headers, body: new Uint8Array() }), false);
       const reader = body?.getReader();
+      if (shape) {
+        // Everything the model writes waits in `queue`; one frame leaves per tick whatever is in it.
+        const head = await piece(encodeResponse(shapeResponse({ status, headers, body: new Uint8Array() }, FRAME)), false);
+        const queue: Uint8Array[] = [];
+        let queued = 0, ended = !reader, failed: unknown = null, sentEnd = false, frames = 0, nextAt = Date.now() + TICK_MS;
+        if (reader) (async () => {
+          try { for (;;) { const r = await reader.read(); if (r.done) break; if (r.value.length) { queue.push(r.value); queued += r.value.length; } } }
+          catch (e) { failed = e; }
+          ended = true;
+        })();
+        const take = (max: number) => {
+          const out = new Uint8Array(Math.min(max, queued));
+          for (let o = 0; o < out.length;) {
+            const n = Math.min(queue[0].length, out.length - o);
+            out.set(queue[0].subarray(0, n), o);
+            o += n;
+            if (n === queue[0].length) queue.shift(); else queue[0] = queue[0].subarray(n);
+          }
+          queued -= out.length;
+          return out;
+        };
+        return new ReadableStream<Uint8Array>({
+          start(c) { c.enqueue(cat(responseNonce, head)); },
+          async pull(c) {
+            if (sentEnd && frames % TAIL === 0) { c.enqueue(await piece(new Uint8Array(), true)); return c.close(); }
+            if (queued <= BULK) await sleep(nextAt - Date.now());
+            nextAt = Date.now() + TICK_MS;
+            if (failed) throw failed;
+            const data = take(FRAME - 3);
+            const frame = new Uint8Array(FRAME);
+            if (!sentEnd && ended && queued === 0) { frame[0] = END; sentEnd = true; }
+            frame[1] = data.length >> 8; frame[2] = data.length & 0xff;
+            frame.set(data, 3);
+            frames++;
+            c.enqueue(await piece(frame, false));
+          },
+          cancel: (reason) => reader?.cancel(reason),
+        });
+      }
+      const head = await piece(encodeResponse({ status, headers, body: new Uint8Array() }), false);
       return new ReadableStream<Uint8Array>({
         start(c) { c.enqueue(cat(responseNonce, head)); },
         async pull(c) {
